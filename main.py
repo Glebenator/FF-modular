@@ -2,6 +2,7 @@ from picamera2 import Picamera2
 from picamera2.encoders import H264Encoder
 from picamera2.outputs import FileOutput
 from libcamera import controls
+from picamera2.encoders import Quality
 import cv2
 import numpy as np
 from pyzbar.pyzbar import decode
@@ -14,6 +15,7 @@ from barcode_processor import BarcodeProcessor
 
 class MotionBarcodeRecorder:
     def __init__(self, server_url, roi_x=0, roi_y=0, roi_width=None, roi_height=None):
+        """Initialize the motion and barcode recording system."""
         self.picam2 = Picamera2()
         
         # Create output directories
@@ -24,19 +26,25 @@ class MotionBarcodeRecorder:
         self.json_sender = JSONSender(server_url)
         self.barcode_processor = BarcodeProcessor()
         
-        # Configure camera streams optimized for fast barcode scanning
-        self.config = self.picam2.create_preview_configuration(
-            main={"size": (1640, 1232), "format": "RGB888"},  # Higher res for barcode
-            lores={"size": (320, 240), "format": "YUV420"},   # Lower res for motion
-            encode="main",
+        # Configure camera streams:
+        # - lores: motion detection (320x240)
+        # - main: barcode scanning (1920x1080)
+        # - video: high fps recording (640x640)
+        self.config = self.picam2.create_video_configuration(
+            main={"size": (640, 640), "format": "RGB888"},    # For high fps recording
+            lores={"size": (320, 240), "format": "YUV420"},   # For motion detection
+            encode="main",  # Use main stream for recording
+            buffer_count=8,  # Increase buffer count for high fps
             controls={
-                "FrameDurationLimits": (8333, 8333),  # Try to achieve 120fps
+                "FrameDurationLimits": (8333, 8333),  # Try for 120fps (1/120s = 8333μs)
                 "NoiseReductionMode": controls.draft.NoiseReductionModeEnum.Fast,
-                "AfMode": controls.AfModeEnum.Continuous,  # Enable continuous autofocus
-                "AfSpeed": controls.AfSpeedEnum.Fast  # Fast autofocus
-            }
-        )
-        
+                "AfMode": controls.AfModeEnum.Continuous,
+                "AfSpeed": controls.AfSpeedEnum.Fast,
+                "ExposureTime": 8000,  # Fast exposure to minimize motion blur
+                "AnalogueGain": 4.0,   # Increased gain to compensate for fast exposure
+                "Sharpness": 1.5       # Slightly increased sharpness
+        }
+    )
         self.picam2.configure(self.config)
         
         # Get the actual stream configurations
@@ -60,6 +68,7 @@ class MotionBarcodeRecorder:
         self.current_session_timestamp = None
 
     def detect_motion_yuv(self, yuv_frame, threshold=30):
+        """Detect motion in the YUV frame using the lores stream."""
         y_height = self.lores_size[1]
         y_width = self.lores_size[0]
         y_channel = yuv_frame[:y_height, :y_width]
@@ -79,13 +88,20 @@ class MotionBarcodeRecorder:
         contours, _ = cv2.findContours(thresh.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
         
         self.previous_frame = blurred
+        
+        # Return True if any contour is large enough
         return any(cv2.contourArea(c) > 50 for c in contours)
 
     def start_recording(self):
+        """Start recording video and initialize a new barcode session."""
         self.current_session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        video_path = os.path.join(self.output_dir, 'videos', f'motion_{self.current_session_timestamp}.h264')
+        video_path = os.path.join(self.output_dir, 'videos', 
+                                f'motion_{self.current_session_timestamp}.h264')
         
-        self.encoder = H264Encoder(bitrate=10000000)
+        # Configure encoder optimized for high fps, low motion blur
+        self.encoder = H264Encoder(
+            bitrate=4000000,    # 4 Mbps should be sufficient for 640x640
+        )
         self.output = FileOutput(video_path)
         self.picam2.start_encoder(self.encoder, self.output)
         
@@ -97,6 +113,7 @@ class MotionBarcodeRecorder:
         print(f"Started recording: {video_path}")
 
     def stop_recording(self):
+        """Stop recording and process any detected barcodes."""
         if self.is_recording:
             self.picam2.stop_encoder()
             
@@ -118,6 +135,7 @@ class MotionBarcodeRecorder:
             print("Stopped recording")
 
     def scan_barcode(self, frame):
+        """Scan for barcodes in the provided frame."""
         try:
             barcodes = decode(frame)
             for barcode in barcodes:
@@ -128,6 +146,7 @@ class MotionBarcodeRecorder:
             print(f"Error processing barcode: {e}")
 
     def motion_detection_loop(self):
+        """Main loop for motion detection using the lores stream."""
         while self.running:
             try:
                 frame = self.picam2.capture_array("lores")
@@ -142,32 +161,35 @@ class MotionBarcodeRecorder:
                     elif self.is_recording:
                         if current_time - self.last_motion_time > 11:
                             self.stop_recording()
-                        elif current_time - self.recording_start_time < 10:
+                        elif current_time - self.recording_start_time < 6:
                             self.last_motion_time = current_time
             except Exception as e:
                 print(f"Error in motion detection loop: {e}")
             
-            time.sleep(0.001)  # Minimal sleep to prevent CPU overload
+            time.sleep(0.1)  # Minimal sleep to prevent CPU overload
 
     def barcode_scanning_loop(self):
+        """Main loop for barcode scanning using the main stream."""
         while self.running:
             try:
                 if self.is_recording:  # Only scan when recording is active
                     frame = self.picam2.capture_array("main")
                     self.scan_barcode(frame)
-                    time.sleep(0.001)  # Minimal sleep during active scanning
+                    time.sleep(0.0001)  # Slightly longer sleep for barcode scanning
                 else:
                     time.sleep(0.1)  # Longer sleep when not scanning
             except Exception as e:
                 print(f"Error in barcode scanning loop: {e}")
 
     def start(self):
+        """Start the recording system and processing threads."""
         self.running = True
         self.picam2.start()
         
         # Start the processing threads
         self.motion_thread = threading.Thread(target=self.motion_detection_loop)
         self.barcode_thread = threading.Thread(target=self.barcode_scanning_loop)
+        
         self.motion_thread.start()
         self.barcode_thread.start()
         
@@ -181,12 +203,15 @@ class MotionBarcodeRecorder:
             self.stop()
 
     def stop(self):
+        """Stop all processing and clean up resources."""
         print("\nStopping system...")
         self.running = False
+        
         if self.motion_thread.is_alive():
             self.motion_thread.join()
         if self.barcode_thread.is_alive():
             self.barcode_thread.join()
+            
         if self.is_recording:
             self.stop_recording()
         
