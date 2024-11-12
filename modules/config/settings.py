@@ -21,7 +21,7 @@ class ProcessingConfig:
 
 @dataclass
 class NetworkConfig:
-    SERVER_URL = os.getenv("BARCODE_SERVER_URL", "http://your-server.com/api/barcodes")
+    SERVER_URL = os.getenv("BARCODE_SERVER_URL", "http://glebs.net")
     MAX_QUEUE_SIZE = 1000
     MAX_RETRIES = 3
     RETRY_DELAY = 5.0
@@ -34,3 +34,4 @@ class PathConfig:
     OUTPUT_DIR = os.path.join(BASE_DIR, 'recordings')
     VIDEO_DIR = os.path.join(OUTPUT_DIR, 'videos')
     LOG_DIR = os.path.join(BASE_DIR, 'logs')
+    JSON_DIR = os.path.join(OUTPUT_DIR, 'json')  # New path for JSON files

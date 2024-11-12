@@ -7,11 +7,13 @@ from datetime import datetime
 import threading
 from queue import Queue, Empty, Full
 import time
+import os
 from typing import Any, Dict, Optional
 from dataclasses import dataclass
 from urllib.parse import urlparse
 import socket
 import backoff
+from config.settings import PathConfig
 
 @dataclass
 class QueueItem:
@@ -20,6 +22,7 @@ class QueueItem:
     data: Dict[str, Any]
     timestamp: float
     retries: int = 0
+    json_path: Optional[str] = None  # Added to store path to saved JSON
 
 class JSONSender:
     def __init__(self, server_url: str,
@@ -35,7 +38,10 @@ class JSONSender:
         self.retry_delay = retry_delay
         self.connection_timeout = connection_timeout
         self.queue_timeout = queue_timeout
-        
+         
+        # Create JSON directory if it doesn't exist
+        os.makedirs(PathConfig.JSON_DIR, exist_ok=True)
+
         self.send_queue = Queue(maxsize=max_queue_size)
         self.retry_queue = Queue(maxsize=max_queue_size)
         
@@ -44,6 +50,61 @@ class JSONSender:
         self._initialize_health_metrics()
         
         self._start_threads()
+
+    def _save_json_locally(self, session_id: str, data: Dict[str, Any]) -> str:
+        """
+        Save JSON data to local file system.
+        Returns the path to the saved file.
+        """
+        try:
+            # Create a filename with timestamp for uniqueness
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            filename = f"session_{session_id}_{timestamp}.json"
+            file_path = os.path.join(PathConfig.JSON_DIR, filename)
+            
+            # Save the data with pretty formatting
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump({
+                    'session_id': session_id,
+                    'data': data,
+                    'timestamp': timestamp,
+                    'server_url': self.server_url
+                }, f, indent=4, ensure_ascii=False)
+            
+            self.logger.info(f"Saved JSON data to: {file_path}")
+            return file_path
+            
+        except Exception as e:
+            self.logger.error(f"Error saving JSON data locally: {e}")
+            return None
+    
+    def _update_json_status(self, json_path: str, status: str, error: str = None):
+        """Update the JSON file with send status"""
+        try:
+            if not os.path.exists(json_path):
+                return
+                
+            with open(json_path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            
+            # Add status information
+            data['send_status'] = status
+            data['last_attempt'] = datetime.now().isoformat()
+            if error:
+                data['last_error'] = str(error)
+            
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                
+        except Exception as e:
+            self.logger.error(f"Error updating JSON status: {e}")
+
+    @backoff.on_exception(
+        backoff.expo,
+        (requests.exceptions.RequestException, socket.error),
+        max_tries=3,
+        max_time=30
+    )
 
     def _validate_url(self, url: str) -> None:
         """Validate the server URL format."""
@@ -82,7 +143,7 @@ class JSONSender:
         max_time=30
     )
     def _send_json(self, item: QueueItem) -> bool:
-        """Send JSON data to server with exponential backoff retry."""
+        """Send JSON data to server with exponential backoff retry"""
         try:
             data_to_send = {
                 'data': item.data,
@@ -109,6 +170,10 @@ class JSONSender:
                 self.health_metrics['successful_sends'] += 1
                 self.health_metrics['last_successful_send'] = time.time()
             
+            # Update JSON file status on successful send
+            if item.json_path:
+                self._update_json_status(item.json_path, "sent")
+            
             self.logger.info(f"Successfully sent session {item.session_id}")
             return True
             
@@ -117,7 +182,13 @@ class JSONSender:
             with self.metrics_lock:
                 self.health_metrics['failed_sends'] += 1
                 self.health_metrics['last_error'] = str(e)
+            
+            # Update JSON file status on failed send
+            if item.json_path:
+                self._update_json_status(item.json_path, "failed", str(e))
+            
             return False
+            
 
     def _process_queues(self) -> None:
         """Process both send and retry queues."""
@@ -185,21 +256,29 @@ class JSONSender:
                 time.sleep(60)
 
     def send_recording_data(self, session_id: str, data: Dict[str, Any]) -> None:
-        """Queue data to be sent."""
+        """Queue data to be sent"""
         try:
+            # First save the data locally
+            json_path = self._save_json_locally(session_id, data)
+            
             item = QueueItem(
                 session_id=session_id,
                 data=data,
-                timestamp=time.time()
+                timestamp=time.time(),
+                json_path=json_path
             )
             
             if self.send_queue.qsize() < self.send_queue.maxsize:
                 self.send_queue.put(item, timeout=self.queue_timeout)
+                self._update_json_status(json_path, "queued")
             else:
                 self.logger.error(f"Send queue full, dropping session {session_id}")
+                self._update_json_status(json_path, "dropped", "Queue full")
                 
         except Exception as e:
             self.logger.error(f"Error queueing data: {e}")
+            if 'json_path' in locals() and json_path:
+                self._update_json_status(json_path, "error", str(e))
 
     def get_health_status(self) -> Dict[str, Any]:
         """Get current health metrics."""
