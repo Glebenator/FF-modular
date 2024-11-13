@@ -12,6 +12,7 @@ from config.settings import PathConfig, ProcessingConfig, NetworkConfig
 from core.camera_manager import CameraManager
 from core.motion_detector import MotionDetector
 from core.barcode_processor import BarcodeProcessor
+from core.video_processor import VideoProcessor
 from network.json_sender import JSONSender
 from utils.logging_config import setup_logging
 
@@ -36,17 +37,25 @@ class MotionBarcodeSystem:
             queue_timeout=NetworkConfig.QUEUE_TIMEOUT
         )
         
+        # Initialize video processor if enabled
+        if ProcessingConfig.ENABLE_VIDEO_PROCESSING:
+            self.video_processor = VideoProcessor(ProcessingConfig.YOLO_MODEL_PATH)
+        else:
+            self.video_processor = None
+            
         # Initialize state
         self.is_recording = False
         self.running = False
         self.last_motion_time = 0
         self.recording_start_time = 0
         self.current_session_timestamp = None
+        self.current_video_path = None
         self.lock = threading.Lock()
         
     def _setup_output_directories(self):
         """Create necessary output directories."""
         os.makedirs(PathConfig.VIDEO_DIR, exist_ok=True)
+        os.makedirs(PathConfig.MODELS_DIR, exist_ok=True)
         
     def _handle_shutdown(self, signum, frame):
         """Handle shutdown signals."""
@@ -58,21 +67,21 @@ class MotionBarcodeSystem:
         """Start a new recording session."""
         try:
             self.current_session_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            video_path = os.path.join(
+            self.current_video_path = os.path.join(
                 PathConfig.VIDEO_DIR,
                 f'motion_{self.current_session_timestamp}.h264'
             )
             
             # Make sure the directory exists
-            os.makedirs(os.path.dirname(video_path), exist_ok=True)
+            os.makedirs(os.path.dirname(self.current_video_path), exist_ok=True)
             
-            # Start recording and store encoder/output
-            self.encoder, self.output = self.camera.start_recording(video_path)
+            # Start recording
+            self.encoder, self.output = self.camera.start_recording(self.current_video_path)
             self.barcode_processor.start_new_session()
             
             self.is_recording = True
             self.recording_start_time = time.time()
-            self.logger.info(f"Started recording: {video_path}")
+            self.logger.info(f"Started recording: {self.current_video_path}")
         except Exception as e:
             self.logger.error(f"Failed to start recording: {e}")
             raise
@@ -91,6 +100,12 @@ class MotionBarcodeSystem:
                     self.current_session_timestamp,
                     session_data
                 )
+            
+            # Queue video for processing if enabled
+            if (self.video_processor and 
+                self.current_video_path and 
+                os.path.exists(self.current_video_path)):
+                self.video_processor.queue_video(self.current_video_path)
             
             self.barcode_processor.end_session()
             self.is_recording = False
@@ -151,6 +166,10 @@ class MotionBarcodeSystem:
         self.running = True
         self.camera.start()
         
+        # Start video processor if enabled
+        if self.video_processor:
+            self.video_processor.start()
+        
         # Set up signal handlers
         signal.signal(signal.SIGINT, self._handle_shutdown)
         signal.signal(signal.SIGTERM, self._handle_shutdown)
@@ -176,6 +195,9 @@ class MotionBarcodeSystem:
             
         if self.is_recording:
             self.stop_recording()
+            
+        if self.video_processor:
+            self.video_processor.stop()
             
         self.json_sender.stop()
         self.camera.stop()

@@ -1,3 +1,4 @@
+# motion_barcode_system/config/settings.py
 """Configuration settings for the motion barcode system."""
 import os
 from dataclasses import dataclass
@@ -18,6 +19,18 @@ class ProcessingConfig:
     MIN_RECORDING_TIME = 6
     MOTION_CHECK_INTERVAL = 0.1
     BARCODE_SCAN_INTERVAL = 0.0001
+    
+    # Video processing settings
+    YOLO_MODEL_PATH = os.getenv(
+        "YOLO_MODEL_PATH",
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/yolo11n_ncnn_model")
+    )
+    ENABLE_VIDEO_PROCESSING = True
+    VIDEO_PROCESSING_CONFIDENCE = 0.3
+    VIDEO_PROCESSING_IOU = 0.5
+    MAX_DETECTIONS = 3
+    VIDEO_PROCESSING_STRIDE = 3  # Process every Nth frame
+    YOLO_TASK = "detect"  # Explicitly set YOLO task
 
 @dataclass
 class NetworkConfig:
@@ -33,5 +46,10 @@ class PathConfig:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     OUTPUT_DIR = os.path.join(BASE_DIR, 'recordings')
     VIDEO_DIR = os.path.join(OUTPUT_DIR, 'videos')
+    VIDEO_RAW_DIR = os.path.join(VIDEO_DIR, 'raw')
+    VIDEO_ANALYZED_DIR = os.path.join(VIDEO_DIR, 'analyzed')
     LOG_DIR = os.path.join(BASE_DIR, 'logs')
-    JSON_DIR = os.path.join(OUTPUT_DIR, 'json')  # New path for JSON files
+    JSON_DIR = os.path.join(OUTPUT_DIR, 'json')
+    JSON_BARCODES_DIR = os.path.join(JSON_DIR, 'barcodes')
+    JSON_TRACKING_DIR = os.path.join(JSON_DIR, 'tracking')
+    MODELS_DIR = os.path.join(BASE_DIR, 'models')
