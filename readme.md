@@ -38,9 +38,9 @@ This system uses a Raspberry Pi camera to:
 ## Prerequisites
 
 ### Hardware Requirements
-- Raspberry Pi (3 or newer recommended)
-- Raspberry Pi Camera Module
-- Adequate storage for recordings
+- Raspberry Pi 5
+- Raspberry Pi Camera Module 3 (or better)
+- Adequate storage for recordings (ssd prefered )
 
 ### Software Requirements
 ```bash
@@ -205,32 +205,3 @@ vcgencmd get_camera
 - System logs are stored in `logs/motion_barcode_YYYYMMDD.log`
 - Include timestamps and component information
 - Log rotation is automatic
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a new Pull Request
-
-## License
-
-[Your chosen license]
-
-## Acknowledgments
-
-- YOLO object detection
-- OpenCV community
-- Raspberry Pi community
-
-## Support
-
-For support, please:
-1. Check the documentation
-2. Review logs for specific errors
-3. Open an issue with:
-   - System configuration
-   - Relevant logs
-   - Steps to reproduce
-
