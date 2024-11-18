@@ -15,6 +15,7 @@ from core.barcode_processor import BarcodeProcessor
 from core.video_processor import VideoProcessor
 from network.json_sender import JSONSender
 from utils.logging_config import setup_logging
+from hardware.hardware_controller import HardwareController, LEDStatus
 
 class MotionBarcodeSystem:
     def __init__(self):
@@ -23,6 +24,7 @@ class MotionBarcodeSystem:
         self._setup_output_directories()
         
         # Initialize components
+        self.hardware_controller = HardwareController()
         self.camera = CameraManager()
         self.motion_detector = MotionDetector(
             roi_x=60, roi_y=40, roi_width=200, roi_height=160
@@ -118,6 +120,7 @@ class MotionBarcodeSystem:
             for barcode in barcodes:
                 barcode_data = barcode.data.decode("utf-8")
                 if self.barcode_processor.process_barcode(barcode_data):
+                    self.hardware_controller.play_barcode_sound()
                     self.logger.info(f"Detected barcode: {barcode_data}")
         except Exception as e:
             self.logger.error(f"Error processing barcode: {e}")
@@ -163,25 +166,31 @@ class MotionBarcodeSystem:
                 
     def start(self):
         """Start the motion barcode system."""
-        self.running = True
-        self.camera.start()
-        
-        # Start video processor if enabled
-        if self.video_processor:
-            self.video_processor.start()
-        
-        # Set up signal handlers
-        signal.signal(signal.SIGINT, self._handle_shutdown)
-        signal.signal(signal.SIGTERM, self._handle_shutdown)
-        
-        # Start processing threads
-        self.motion_thread = threading.Thread(target=self.motion_detection_loop)
-        self.barcode_thread = threading.Thread(target=self.barcode_scanning_loop)
-        
-        self.motion_thread.start()
-        self.barcode_thread.start()
-        
-        self.logger.info(f"System started - saving recordings to {PathConfig.OUTPUT_DIR}")
+        try:
+            self.running = True
+            self.camera.start()
+            self.hardware_controller.set_status(LEDStatus.RUNNING)
+            
+            # Start video processor if enabled
+            if self.video_processor:
+                self.video_processor.start()
+            
+            # Set up signal handlers
+            signal.signal(signal.SIGINT, self._handle_shutdown)
+            signal.signal(signal.SIGTERM, self._handle_shutdown)
+            
+            # Start processing threads
+            self.motion_thread = threading.Thread(target=self.motion_detection_loop)
+            self.barcode_thread = threading.Thread(target=self.barcode_scanning_loop)
+            
+            self.motion_thread.start()
+            self.barcode_thread.start()
+            
+            self.logger.info(f"System started - saving recordings to {PathConfig.OUTPUT_DIR}")
+        except Exception as e:
+            self.logger.error(f"Error starting system: {e}")
+            self.hardware_controller.set_status(LEDStatus.ERROR)
+            raise
         
     def stop(self):
         """Stop the motion barcode system."""
@@ -201,10 +210,12 @@ class MotionBarcodeSystem:
             
         self.json_sender.stop()
         self.camera.stop()
+        self.hardware_controller.cleanup()
         self.logger.info("System stopped")
 
 def main():
     """Main entry point for the application."""
+    system = None
     try:
         system = MotionBarcodeSystem()
         system.start()
@@ -215,6 +226,8 @@ def main():
             
     except Exception as e:
         logging.error(f"Critical error: {e}")
+        if system:
+            system.hardware_controller.set_status(LEDStatus.ERROR)  # Set error status
         sys.exit(1)
 
 if __name__ == "__main__":

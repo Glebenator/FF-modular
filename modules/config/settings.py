@@ -15,8 +15,8 @@ class CameraConfig:
 @dataclass
 class ProcessingConfig:
     MOTION_THRESHOLD = 30
-    MOTION_TIMEOUT = 11
-    MIN_RECORDING_TIME = 6
+    MOTION_TIMEOUT = 6
+    MIN_RECORDING_TIME = 10
     MOTION_CHECK_INTERVAL = 0.1
     BARCODE_SCAN_INTERVAL = 0.0001
     
@@ -53,3 +53,11 @@ class PathConfig:
     JSON_BARCODES_DIR = os.path.join(JSON_DIR, 'barcodes')
     JSON_TRACKING_DIR = os.path.join(JSON_DIR, 'tracking')
     MODELS_DIR = os.path.join(BASE_DIR, 'models')
+
+@dataclass
+class HardwareConfig:
+    RED_PIN = 17
+    GREEN_PIN = 27
+    BLUE_PIN = 22
+    BUZZER_PIN = 18
+    BUZZER_TONE = "A4"
