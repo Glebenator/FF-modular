@@ -9,15 +9,17 @@ from ultralytics import YOLO
 
 from config.settings import PathConfig, ProcessingConfig
 from core.videotrack import FridgeDirectionDetector, process_h264_video
+from hardware.hardware_controller import LEDStatus
 
 class VideoProcessor:
-    def __init__(self, model_path):
+    def __init__(self, model_path, hardware_controller):
         """Initialize the video processor."""
         self.logger = logging.getLogger(__name__)
         self.model_path = model_path
         self.processing_queue = Queue()
         self.running = False
         self.processing_thread = None
+        self.hardware_controller = hardware_controller
         
     def start(self):
         """Start the video processing service."""
@@ -50,13 +52,23 @@ class VideoProcessor:
         while self.running:
             try:
                 if not self.processing_queue.empty():
+                    # Set LED to processing status
+                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
+                    
                     video_path = self.processing_queue.get()
                     self._process_video(video_path)
                     self.processing_queue.task_done()
+                    
+                    # Return to running status if queue is empty
+                    if self.processing_queue.empty():
+                        self.hardware_controller.set_status(LEDStatus.RUNNING)
                 else:
                     time.sleep(1)
             except Exception as e:
                 self.logger.error(f"Error in processing queue: {e}")
+                self.hardware_controller.set_status(LEDStatus.ERROR)
+                time.sleep(5)  # Show error status briefly
+                self.hardware_controller.set_status(LEDStatus.RUNNING)
                 
     def _process_video(self, video_path):
         """Process a single video file."""
@@ -66,3 +78,5 @@ class VideoProcessor:
             self.logger.info(f"Completed processing video: {video_path}")
         except Exception as e:
             self.logger.error(f"Error processing video: {e}")
+            self.hardware_controller.set_status(LEDStatus.ERROR)
+            raise

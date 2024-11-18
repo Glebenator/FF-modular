@@ -41,7 +41,7 @@ class MotionBarcodeSystem:
         
         # Initialize video processor if enabled
         if ProcessingConfig.ENABLE_VIDEO_PROCESSING:
-            self.video_processor = VideoProcessor(ProcessingConfig.YOLO_MODEL_PATH)
+            self.video_processor = VideoProcessor(ProcessingConfig.YOLO_MODEL_PATH, self.hardware_controller)
         else:
             self.video_processor = None
             

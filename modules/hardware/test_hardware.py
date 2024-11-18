@@ -1,174 +1,100 @@
-# hardware/test_led.py
-import RPi.GPIO as GPIO
-import threading
+# hardware/test_hardware.py
 import time
-from enum import Enum
+import os
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from hardware_controller import HardwareController, LEDStatus
 
-class LEDStatus(Enum):
-    """LED status indicators."""
-    RUNNING = "running"      # Green
-    ERROR = "error"         # Red
-    WARNING = "warning"     # Yellow
-    OFF = "off"            # All off
-
-class HardwareTest:
-    """Simple test class for RGB LED."""
-    
-    def __init__(self, red_pin=17, green_pin=27, blue_pin=22):
-        """Initialize with default GPIO pins."""
-        # Set up GPIO pins
-        self.red_pin = red_pin
-        self.green_pin = green_pin
-        self.blue_pin = blue_pin
-        
-        # Initialize GPIO
-        GPIO.setmode(GPIO.BCM)
-        GPIO.setwarnings(False)
-        
-        # Setup LED pins as outputs
-        GPIO.setup(self.red_pin, GPIO.OUT)
-        GPIO.setup(self.green_pin, GPIO.OUT)
-        GPIO.setup(self.blue_pin, GPIO.OUT)
-        
-        # Create PWM objects for LED pins (100 Hz frequency)
-        self.red_pwm = GPIO.PWM(self.red_pin, 100)
-        self.green_pwm = GPIO.PWM(self.green_pin, 100)
-        self.blue_pwm = GPIO.PWM(self.blue_pin, 100)
-        
-        # Start PWM with 0% duty cycle
-        self.red_pwm.start(0)
-        self.green_pwm.start(0)
-        self.blue_pwm.start(0)
-        
-        self._current_status = LEDStatus.OFF
-        self._led_lock = threading.Lock()
-            
-    def _set_color(self, red, green, blue):
-        """Set RGB LED color using PWM values (0-100)."""
-        with self._led_lock:
-            self.red_pwm.ChangeDutyCycle(red)
-            self.green_pwm.ChangeDutyCycle(green)
-            self.blue_pwm.ChangeDutyCycle(blue)
-            
-    def set_status(self, status: LEDStatus):
-        """Set LED status indicator."""
-        try:
-            if status == LEDStatus.RUNNING:
-                self._set_color(0, 100, 0)  # Green
-            elif status == LEDStatus.ERROR:
-                self._set_color(100, 0, 0)  # Red
-            elif status == LEDStatus.WARNING:
-                self._set_color(100, 100, 0)  # Yellow
-            elif status == LEDStatus.OFF:
-                self._set_color(0, 0, 0)  # Off
-                
-            self._current_status = status
-            print(f"LED status set to: {status.value}")
-            
-        except Exception as e:
-            print(f"Error setting LED status: {e}")
-            
-    def cleanup(self):
-        """Clean up GPIO resources."""
-        try:
-            self.set_status(LEDStatus.OFF)
-            self.red_pwm.stop()
-            self.green_pwm.stop()
-            self.blue_pwm.stop()
-            GPIO.cleanup()
-            print("Hardware resources cleaned up")
-            
-        except Exception as e:
-            print(f"Error cleaning up hardware resources: {e}")
-
-def test_led_states():
-    """Test basic LED states."""
-    print("Testing LED states...")
-    hw = HardwareTest()
-    
+def test_hardware_controller():
+    """
+    Test function to verify all hardware controller functionality.
+    Runs through various LED states and effects.
+    """
     try:
-        # Test each status
-        print("Setting LED to RUNNING (Green)")
-        hw.set_status(LEDStatus.RUNNING)
-        time.sleep(2)
+        print("Initializing hardware controller test...")
+        controller = HardwareController()
         
-        print("Setting LED to WARNING (Yellow)")
-        hw.set_status(LEDStatus.WARNING)
-        time.sleep(2)
+        # Test basic states
+        print("\nTesting basic LED states:")
+        states = [
+            (LEDStatus.RUNNING, "Running (solid green)", 2),
+            (LEDStatus.WARNING, "Warning (solid yellow)", 2),
+            (LEDStatus.ERROR, "Error (solid red)", 2),
+            (LEDStatus.OFF, "Off", 2)
+        ]
         
-        print("Setting LED to ERROR (Red)")
-        hw.set_status(LEDStatus.ERROR)
-        time.sleep(2)
-        
-        print("Setting LED to OFF")
-        hw.set_status(LEDStatus.OFF)
-        time.sleep(1)
-        
-        # Test color cycling
-        print("\nTesting color cycle (press Ctrl+C to stop)...")
-        while True:
-            # Fade through some colors
-            for r, g, b in [
-                (100, 0, 0),    # Red
-                (0, 100, 0),    # Green
-                (0, 0, 100),    # Blue
-                (100, 100, 0),  # Yellow
-                (100, 0, 100),  # Purple
-                (0, 100, 100),  # Cyan
-            ]:
-                hw._set_color(r, g, b)
-                time.sleep(0.5)
-                
-    except KeyboardInterrupt:
-        print("\nTest interrupted by user")
-    finally:
-        print("Cleaning up...")
-        hw.cleanup()
-        print("Test complete")
-
-def test_led_fade():
-    """Test LED fading effect."""
-    print("Testing LED fade effect (press Ctrl+C to stop)...")
-    hw = HardwareTest()
-    
-    try:
-        while True:
-            # Fade in green
-            print("Fading in green...")
-            for i in range(101):
-                hw._set_color(0, i, 0)
-                time.sleep(0.02)
+        for state, description, duration in states:
+            print(f"\nSetting LED to {description}")
+            controller.set_status(state)
+            time.sleep(duration)
             
-            # Fade out green
-            print("Fading out green...")
-            for i in range(100, -1, -1):
-                hw._set_color(0, i, 0)
-                time.sleep(0.02)
-                
-    except KeyboardInterrupt:
-        print("\nTest interrupted by user")
+        # Test processing pulse
+        print("\nTesting processing state (pulsing blue) for 5 seconds...")
+        controller.set_status(LEDStatus.PROCESSING)
+        time.sleep(5)
+        
+        # Test barcode detection pulses with different colors
+        print("\nTesting barcode detection pulses...")
+        colors = [
+            ((0, 1, 0), "Green"),
+            ((0, 0, 1), "Blue"),
+            ((1, 0, 0), "Red"),
+            ((1, 1, 0), "Yellow"),
+            ((1, 0, 1), "Purple"),
+            ((0, 1, 1), "Cyan")
+        ]
+        
+        for color, name in colors:
+            print(f"Pulsing {name}...")
+            controller.pulse_success(color)
+            time.sleep(1.5)  # Wait for pulse to complete
+            
+        # Test rapid barcode detection
+        print("\nTesting rapid barcode detection simulation...")
+        for _ in range(5):
+            controller.pulse_success((0, 1, 0))  # Green pulses
+            time.sleep(0.5)
+            
+        # Test buzzer
+        print("\nTesting buzzer...")
+        for _ in range(3):
+            controller.play_barcode_sound()
+            time.sleep(0.5)
+            
+        # Test combined effects
+        print("\nTesting combined LED and buzzer (simulating barcode detection)...")
+        for _ in range(3):
+            controller.pulse_success((0, 1, 0))
+            controller.play_barcode_sound()
+            time.sleep(1)
+            
+        # Return to normal state
+        print("\nReturning to running state (solid green)...")
+        controller.set_status(LEDStatus.RUNNING)
+        time.sleep(2)
+        
+        print("\nHardware test complete!")
+        
+    except Exception as e:
+        print(f"Error during hardware test: {e}")
+        
     finally:
-        print("Cleaning up...")
-        hw.cleanup()
-        print("Test complete")
+        print("\nCleaning up...")
+        controller.cleanup()
 
 if __name__ == "__main__":
-    print("RGB LED Test Script")
-    print("-----------------")
-    print("Connection Guide:")
-    print("- Red LED   -> GPIO 17 (with 220Ω resistor)")
-    print("- Green LED -> GPIO 27 (with 220Ω resistor)")
-    print("- Blue LED  -> GPIO 22 (with 220Ω resistor)")
-    print("- Common Cathode -> GND")
-    print("-----------------")
-    print("1. Test LED states (cycles through colors)")
-    print("2. Test LED fade effect (green fade in/out)")
+    print("Starting hardware controller test...")
+    print("This test will demonstrate all LED states and effects.")
+    print("Press Ctrl+C to exit at any time.")
+    print("\nNOTE: Ensure all GPIO pins are correctly connected!")
     
-    choice = input("Choose a test (1 or 2): ")
-    
-    if choice == "1":
-        test_led_states()
-    elif choice == "2":
-        test_led_fade()
-    else:
-        print("Invalid choice")
+    try:
+        test_hardware_controller()
+    except KeyboardInterrupt:
+        print("\nTest interrupted by user")
+        try:
+            controller.cleanup()
+        except:
+            pass
+    except Exception as e:
+        print(f"\nTest failed: {e}")
