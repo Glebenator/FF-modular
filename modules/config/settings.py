@@ -16,7 +16,7 @@ class CameraConfig:
 class ProcessingConfig:
     MOTION_THRESHOLD = 30
     MOTION_TIMEOUT = 6
-    MIN_RECORDING_TIME = 10
+    MIN_RECORDING_TIME = 5
     MOTION_CHECK_INTERVAL = 0.1
     BARCODE_SCAN_INTERVAL = 0.0001
     
@@ -29,7 +29,7 @@ class ProcessingConfig:
     VIDEO_PROCESSING_CONFIDENCE = 0.3
     VIDEO_PROCESSING_IOU = 0.5
     MAX_DETECTIONS = 3
-    VIDEO_PROCESSING_STRIDE = 3  # Process every Nth frame
+    VIDEO_PROCESSING_STRIDE = 4  # Process every Nth frame
     YOLO_TASK = "detect"  # Explicitly set YOLO task
 
 @dataclass

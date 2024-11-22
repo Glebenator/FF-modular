@@ -1,6 +1,5 @@
 # hardware/hardware_controller.py
-from gpiozero import RGBLED, TonalBuzzer
-from gpiozero.tones import Tone
+from gpiozero import RGBLED, DigitalOutputDevice
 import threading
 import time
 import logging
@@ -32,10 +31,10 @@ class HardwareController:
             self.logger.error(f"Failed to initialize RGB LED: {e}")
             raise
             
-        # Initialize Buzzer
+        # Initialize Active Buzzer
         try:
-            self.buzzer = TonalBuzzer(HardwareConfig.BUZZER_PIN)
-            self.logger.info("Buzzer initialized successfully")
+            self.buzzer = DigitalOutputDevice(HardwareConfig.BUZZER_PIN, active_high=True, initial_value=False)
+            self.logger.info("Active buzzer initialized successfully")
         except Exception as e:
             self.logger.error(f"Failed to initialize buzzer: {e}")
             raise
@@ -43,6 +42,7 @@ class HardwareController:
         self._current_status = LEDStatus.OFF
         self._led_lock = threading.Lock()
         self._buzzer_lock = threading.Lock()
+        self._buzzer_timer = None
         
     def set_status(self, status: LEDStatus):
         """Set LED status indicator with solid colors."""
@@ -71,27 +71,58 @@ class HardwareController:
         """Get current LED status."""
         return self._current_status
         
-    def play_barcode_sound(self):
-        """Play a short beep sound when barcode is scanned."""
+    def _stop_buzzer_timer(self):
+        """Cancel any existing buzzer timer."""
+        if self._buzzer_timer is not None:
+            self._buzzer_timer.cancel()
+            self._buzzer_timer = None
+    
+    def _delayed_buzzer_stop(self):
+        """Stop the buzzer and clear the timer."""
+        try:
+            self.buzzer.off()
+            self._buzzer_timer = None
+        except Exception as e:
+            self.logger.error(f"Error stopping buzzer: {e}")
+        
+    def play_barcode_sound(self, duration=0.05):
+        """
+        Play a short beep sound when barcode is scanned.
+        
+        Args:
+            duration (float): Duration of the beep in seconds. Default is 50ms.
+        """
         try:
             with self._buzzer_lock:
-                # Play A4 note (440Hz) for 100ms
-                self.buzzer.play(Tone(HardwareConfig.BUZZER_TONE))
-                time.sleep(0.5)
-                self.buzzer.stop()
+                # Cancel any existing timer
+                self._stop_buzzer_timer()
+                
+                # Turn buzzer on
+                self.buzzer.on()
+                
+                # Set up new timer to turn it off
+                self._buzzer_timer = threading.Timer(duration, self._delayed_buzzer_stop)
+                self._buzzer_timer.start()
                 
             self.logger.debug("Played barcode scan sound")
             
         except Exception as e:
             self.logger.error(f"Error playing barcode sound: {e}")
+            self.buzzer.off()  # Ensure buzzer is off in case of error
             
     def cleanup(self):
         """Clean up hardware resources."""
         try:
             self.set_status(LEDStatus.OFF)
-            self.buzzer.stop()
-            self.led.close()
+            
+            # Clean up buzzer
+            self._stop_buzzer_timer()
+            self.buzzer.off()
             self.buzzer.close()
+            
+            # Clean up LED
+            self.led.close()
+            
             self.logger.info("Hardware resources cleaned up")
             
         except Exception as e:

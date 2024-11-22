@@ -122,12 +122,9 @@ class MotionBarcodeSystem:
                     "session_start": self.current_session_timestamp,
                     "barcodes": self.barcode_processor.current_session_barcodes
                 }
-                # Send data with callbacks
                 self.json_sender.send_recording_data(
                     self.current_session_timestamp,
-                    session_data,
-                    on_failure=self._handle_json_send_failure,
-                    on_success=self._handle_json_send_success
+                    session_data
                 )
             
             # Queue video for processing if enabled
@@ -135,10 +132,13 @@ class MotionBarcodeSystem:
                 self.current_video_path and 
                 os.path.exists(self.current_video_path)):
                 self.video_processor.queue_video(self.current_video_path)
+                # Don't set LED status here, let VideoProcessor handle it
             
             self.barcode_processor.end_session()
             self.is_recording = False
-            self.hardware_controller.set_status(LEDStatus.RUNNING)
+            # Only set running status if video processor is not active
+            if not (self.video_processor and not self.video_processor.processing_queue.empty()):
+                self.hardware_controller.set_status(LEDStatus.RUNNING)
             self.logger.info("Stopped recording")
             
     def scan_barcode(self, frame):
@@ -148,7 +148,7 @@ class MotionBarcodeSystem:
             for barcode in barcodes:
                 barcode_data = barcode.data.decode("utf-8")
                 if self.barcode_processor.process_barcode(barcode_data):
-                    # Just play success sound and log
+                    # Play success sound and temporarily show processing status
                     self.hardware_controller.play_barcode_sound()
                     self.logger.info(f"Detected barcode: {barcode_data}")
                     

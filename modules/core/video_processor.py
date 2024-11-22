@@ -22,6 +22,7 @@ class VideoProcessor:
         self.running = False
         self.processing_thread = None
         self.hardware_controller = hardware_controller
+        self.is_processing = False  # Add flag to track processing state
         
         # Initialize JSON sender for video processing results
         self.json_sender = JSONSender(
@@ -65,13 +66,22 @@ class VideoProcessor:
         self.running = False
         if self.processing_thread:
             self.processing_thread.join(timeout=30)
-        self.json_sender.stop()
+        if not self.processing_queue.empty():
+            # Maintain processing status if there are still items in queue
+            self.hardware_controller.set_status(LEDStatus.PROCESSING)
+        else:
+            self.is_processing = False
+            self.hardware_controller.set_status(LEDStatus.RUNNING)
         self.logger.info("Video processor stopped")
         
     def queue_video(self, video_path):
         """Add a video to the processing queue."""
         try:
             if os.path.exists(video_path):
+                # Set processing status as soon as we queue a video
+                if not self.is_processing:
+                    self.is_processing = True
+                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
                 self.processing_queue.put(video_path)
                 self.logger.info(f"Queued video for processing: {video_path}")
             else:
@@ -84,23 +94,24 @@ class VideoProcessor:
         while self.running:
             try:
                 if not self.processing_queue.empty():
-                    # Set LED to processing status
-                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
-                    
                     video_path = self.processing_queue.get()
                     self._process_video(video_path)
                     self.processing_queue.task_done()
                     
-                    # Return to running status if queue is empty
+                    # Only change status if queue is empty
                     if self.processing_queue.empty():
+                        self.is_processing = False
                         self.hardware_controller.set_status(LEDStatus.RUNNING)
                 else:
                     time.sleep(1)
             except Exception as e:
                 self.logger.error(f"Error in processing queue: {e}")
                 self.hardware_controller.set_status(LEDStatus.ERROR)
-                time.sleep(5)  # Show error status briefly
-                self.hardware_controller.set_status(LEDStatus.RUNNING)
+                time.sleep(5)
+                if self.is_processing:
+                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
+                else:
+                    self.hardware_controller.set_status(LEDStatus.RUNNING)
                 
     def _process_video(self, video_path):
         """Process a single video file and send results."""
