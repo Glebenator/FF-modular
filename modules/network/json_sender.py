@@ -23,6 +23,8 @@ class QueueItem:
     timestamp: float
     retries: int = 0
     json_path: Optional[str] = None  # Added to store path to saved JSON
+    on_failure: Optional[callable] = None  # New: Callback for failure events
+    on_success: Optional[callable] = None  # New: Callback for success events
 
 class JSONSender:
     def __init__(self, server_url: str,
@@ -201,6 +203,11 @@ class JSONSender:
                         if not self._send_json(item):
                             item.retries += 1
                             self._add_to_retry_queue(item)
+                            if item.retries >= self.max_retries and item.on_failure:
+                                item.on_failure("Max retries exceeded")
+                        else:
+                            if item.on_success:
+                                item.on_success()
                         with self.metrics_lock:
                             self.health_metrics['retry_attempts'] += 1
                     self.retry_queue.task_done()
@@ -212,6 +219,9 @@ class JSONSender:
                     item = self.send_queue.get(timeout=self.queue_timeout)
                     if not self._send_json(item):
                         self._add_to_retry_queue(item)
+                    else:
+                        if item.on_success:
+                            item.on_success()
                     self.send_queue.task_done()
                 except Empty:
                     time.sleep(0.1)
@@ -255,8 +265,10 @@ class JSONSender:
                 self.logger.error(f"Error monitoring health: {e}")
                 time.sleep(60)
 
-    def send_recording_data(self, session_id: str, data: Dict[str, Any]) -> None:
-        """Queue data to be sent"""
+    def send_recording_data(self, session_id: str, data: Dict[str, Any], 
+                          on_failure: Optional[callable] = None,
+                          on_success: Optional[callable] = None) -> None:
+        """Queue data to be sent with optional callbacks."""
         try:
             # First save the data locally
             json_path = self._save_json_locally(session_id, data)
@@ -265,7 +277,9 @@ class JSONSender:
                 session_id=session_id,
                 data=data,
                 timestamp=time.time(),
-                json_path=json_path
+                json_path=json_path,
+                on_failure=on_failure,
+                on_success=on_success
             )
             
             if self.send_queue.qsize() < self.send_queue.maxsize:
@@ -274,11 +288,15 @@ class JSONSender:
             else:
                 self.logger.error(f"Send queue full, dropping session {session_id}")
                 self._update_json_status(json_path, "dropped", "Queue full")
-                
+                if on_failure:
+                    on_failure("Queue full")
+                    
         except Exception as e:
             self.logger.error(f"Error queueing data: {e}")
             if 'json_path' in locals() and json_path:
                 self._update_json_status(json_path, "error", str(e))
+            if on_failure:
+                on_failure(str(e))
 
     def get_health_status(self) -> Dict[str, Any]:
         """Get current health metrics."""

@@ -54,6 +54,26 @@ class MotionBarcodeSystem:
         self.current_video_path = None
         self.lock = threading.Lock()
         
+    def _handle_json_send_failure(self, error_msg: str):
+        """Handle JSON send failure."""
+        self.logger.error(f"Failed to send barcode data: {error_msg}")
+        self.hardware_controller.set_status(LEDStatus.ERROR)
+        # Set a timer to revert to appropriate status after 5 seconds
+        threading.Timer(5.0, self._revert_status).start()
+
+    def _handle_json_send_success(self):
+        """Handle JSON send success."""
+        self.logger.info("Successfully sent barcode data")
+        # Revert to appropriate status
+        self._revert_status()
+
+    def _revert_status(self):
+        """Revert LED status to appropriate state based on current system state."""
+        if self.is_recording:
+            self.hardware_controller.set_status(LEDStatus.RECORDING)
+        else:
+            self.hardware_controller.set_status(LEDStatus.RUNNING)
+    
     def _setup_output_directories(self):
         """Create necessary output directories."""
         os.makedirs(PathConfig.VIDEO_DIR, exist_ok=True)
@@ -83,11 +103,15 @@ class MotionBarcodeSystem:
             
             self.is_recording = True
             self.recording_start_time = time.time()
+            self.hardware_controller.set_status(LEDStatus.RECORDING)
             self.logger.info(f"Started recording: {self.current_video_path}")
         except Exception as e:
             self.logger.error(f"Failed to start recording: {e}")
+            self.hardware_controller.set_status(LEDStatus.ERROR)
+            time.sleep(5) # show error status for 5 seconds
             raise
         
+    
     def stop_recording(self):
         """Stop the current recording session."""
         if self.is_recording:
@@ -98,9 +122,12 @@ class MotionBarcodeSystem:
                     "session_start": self.current_session_timestamp,
                     "barcodes": self.barcode_processor.current_session_barcodes
                 }
+                # Send data with callbacks
                 self.json_sender.send_recording_data(
                     self.current_session_timestamp,
-                    session_data
+                    session_data,
+                    on_failure=self._handle_json_send_failure,
+                    on_success=self._handle_json_send_success
                 )
             
             # Queue video for processing if enabled
@@ -111,6 +138,7 @@ class MotionBarcodeSystem:
             
             self.barcode_processor.end_session()
             self.is_recording = False
+            self.hardware_controller.set_status(LEDStatus.RUNNING)
             self.logger.info("Stopped recording")
             
     def scan_barcode(self, frame):
@@ -120,10 +148,14 @@ class MotionBarcodeSystem:
             for barcode in barcodes:
                 barcode_data = barcode.data.decode("utf-8")
                 if self.barcode_processor.process_barcode(barcode_data):
+                    # Just play success sound and log
                     self.hardware_controller.play_barcode_sound()
                     self.logger.info(f"Detected barcode: {barcode_data}")
+                    
         except Exception as e:
             self.logger.error(f"Error processing barcode: {e}")
+            self.hardware_controller.set_status(LEDStatus.ERROR)
+            threading.Timer(5.0, self._revert_status).start()
             
     def motion_detection_loop(self):
         """Main loop for motion detection."""
@@ -169,7 +201,6 @@ class MotionBarcodeSystem:
         try:
             self.running = True
             self.camera.start()
-            self.hardware_controller.set_status(LEDStatus.RUNNING)
             
             # Start video processor if enabled
             if self.video_processor:
@@ -185,8 +216,10 @@ class MotionBarcodeSystem:
             
             self.motion_thread.start()
             self.barcode_thread.start()
-            
+
+            self.hardware_controller.set_status(LEDStatus.RUNNING)
             self.logger.info(f"System started - saving recordings to {PathConfig.OUTPUT_DIR}")
+            
         except Exception as e:
             self.logger.error(f"Error starting system: {e}")
             self.hardware_controller.set_status(LEDStatus.ERROR)
@@ -208,6 +241,7 @@ class MotionBarcodeSystem:
         if self.video_processor:
             self.video_processor.stop()
             
+        self.hardware_controller.set_status(LEDStatus.OFF)
         self.json_sender.stop()
         self.camera.stop()
         self.hardware_controller.cleanup()
