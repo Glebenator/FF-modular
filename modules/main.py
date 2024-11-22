@@ -184,12 +184,21 @@ class MotionBarcodeSystem:
             time.sleep(ProcessingConfig.MOTION_CHECK_INTERVAL)
             
     def barcode_scanning_loop(self):
-        """Main loop for barcode scanning."""
+        """Main loop for barcode scanning with priority over video processing."""
         while self.running:
             try:
                 if self.is_recording:
+                    # Pause video processing during barcode scan
+                    if self.video_processor:
+                        self.video_processor.pause_processing()
+                        
                     frame = self.camera.capture_frame("main")
                     self.scan_barcode(frame)
+                    
+                    # Resume video processing
+                    if self.video_processor:
+                        self.video_processor.resume_processing()
+                        
                     time.sleep(ProcessingConfig.BARCODE_SCAN_INTERVAL)
                 else:
                     time.sleep(ProcessingConfig.MOTION_CHECK_INTERVAL)

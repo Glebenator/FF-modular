@@ -118,7 +118,7 @@ def draw_dashed_line(img, pt1, pt2, color, thickness=1, dash_length=10):
         end = tuple(map(int, end))
         cv2.line(img, start, end, color, thickness)
 
-def process_h264_video(video_path, model_path):
+def process_h264_video(video_path, model_path, pause_event=None):
     """Process a recorded video file for object tracking and direction detection."""
     logger = logging.getLogger(__name__)
     logger.info(f"Starting video processing: {video_path}")
@@ -154,10 +154,15 @@ def process_h264_video(video_path, model_path):
         detector = FridgeDirectionDetector(line_points)
         
         while cap.isOpened():
+            # Check for pause if pause_event is provided
+            if pause_event and pause_event.is_set():
+                time.sleep(0.1)
+                continue
+                
             ret, frame = cap.read()
             if not ret:
                 break
-                
+            
             # Run YOLO tracking
             results = model.track(
                 source=frame,
@@ -180,7 +185,7 @@ def process_h264_video(video_path, model_path):
                 
                 # Write the frame
                 out.write(annotated_frame)
-                
+        
         # Save detection results
         os.makedirs(PathConfig.JSON_TRACKING_DIR, exist_ok=True)
         save_detection_results(video_path, detector.get_events())

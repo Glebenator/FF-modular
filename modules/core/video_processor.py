@@ -33,6 +33,19 @@ class VideoProcessor:
             connection_timeout=NetworkConfig.CONNECTION_TIMEOUT,
             queue_timeout=NetworkConfig.QUEUE_TIMEOUT
         )
+
+        # **NEW** Add priority control
+        self.priority_lock = threading.Lock()
+        self.processing_active = threading.Event()
+        self.processing_pause = threading.Event()
+
+    def pause_processing(self):
+        """Pause the processing thread."""
+        self.processing_pause.set()
+    
+    def resume_processing(self):
+        """Resume the processing thread."""
+        self.processing_pause.clear()
         
     def _handle_send_failure(self, error_msg: str):
         """Handle JSON send failure."""
@@ -114,9 +127,15 @@ class VideoProcessor:
                     self.hardware_controller.set_status(LEDStatus.RUNNING)
                 
     def _process_video(self, video_path):
-        """Process a single video file and send results."""
+        """Process a single video file with pause support."""
         try:
             self.logger.info(f"Processing video: {video_path}")
+            
+            # Only process when not paused
+            while self.processing_pause.is_set():
+                time.sleep(0.1)
+            
+            # Use the existing video processing function
             process_h264_video(video_path, self.model_path)
             
             # Get the results file path
@@ -143,12 +162,10 @@ class VideoProcessor:
                         "processing_results": results_data
                     }
                     
-                    # Send results using JSONSender with callbacks
+                    # Send results using JSONSender
                     self.json_sender.send_recording_data(
                         f"video_processing_{base_name}",
-                        session_data,
-                        on_failure=self._handle_send_failure,
-                        on_success=self._handle_send_success
+                        session_data
                     )
                     
                 except Exception as e:
