@@ -23,13 +23,13 @@ class ProcessingConfig:
     # Video processing settings
     YOLO_MODEL_PATH = os.getenv(
         "YOLO_MODEL_PATH",
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/yolo11n.pt")
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/yolo11s.pt")
     )
     ENABLE_VIDEO_PROCESSING = True
     VIDEO_PROCESSING_CONFIDENCE = 0.45
     VIDEO_PROCESSING_IOU = 0.5
     MAX_DETECTIONS = 3
-    VIDEO_PROCESSING_STRIDE = 4  # Process every Nth frame
+    VIDEO_PROCESSING_STRIDE = 2  # Process every Nth frame
     YOLO_TASK = "detect"  # Explicitly set YOLO task
 
 @dataclass
