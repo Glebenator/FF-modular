@@ -17,7 +17,7 @@ class VideoTrackingTester:
     def __init__(self):
         """Initialize the video tracking tester."""
         self.logger = setup_logging()
-        self.test_file = "motion_20241123_201458.h264"
+        self.test_file = "motion_20241123_183454.h264"
         
     def setup_test_environment(self):
         """Set up necessary directories and paths for testing."""
