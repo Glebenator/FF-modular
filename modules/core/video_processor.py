@@ -46,7 +46,7 @@ class VideoProcessor:
     def resume_processing(self):
         """Resume the processing thread."""
         self.processing_pause.clear()
-        
+
     def _handle_send_failure(self, error_msg: str):
         """Handle JSON send failure."""
         self.logger.error(f"Failed to send video processing results: {error_msg}")
@@ -108,21 +108,27 @@ class VideoProcessor:
             try:
                 if not self.processing_queue.empty():
                     video_path = self.processing_queue.get()
+                    # Ensure LED is blue while processing
+                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
                     self._process_video(video_path)
                     self.processing_queue.task_done()
                     
-                    # Only change status if queue is empty
                     if self.processing_queue.empty():
                         self.is_processing = False
-                        self.hardware_controller.set_status(LEDStatus.RUNNING)
+                        # Only set to RUNNING if we're not recording
+                        if not hasattr(self, 'is_recording') or not self.is_recording:
+                            self.hardware_controller.set_status(LEDStatus.RUNNING)
                 else:
                     time.sleep(1)
             except Exception as e:
                 self.logger.error(f"Error in processing queue: {e}")
                 self.hardware_controller.set_status(LEDStatus.ERROR)
                 time.sleep(5)
-                if self.is_processing:
+                # Return to appropriate status after error
+                if not self.processing_queue.empty():
                     self.hardware_controller.set_status(LEDStatus.PROCESSING)
+                elif hasattr(self, 'is_recording') and self.is_recording:
+                    self.hardware_controller.set_status(LEDStatus.RECORDING)
                 else:
                     self.hardware_controller.set_status(LEDStatus.RUNNING)
                 

@@ -94,21 +94,19 @@ class MotionBarcodeSystem:
                 f'motion_{self.current_session_timestamp}.h264'
             )
             
-            # Make sure the directory exists
             os.makedirs(os.path.dirname(self.current_video_path), exist_ok=True)
             
-            # Start recording
             self.encoder, self.output = self.camera.start_recording(self.current_video_path)
             self.barcode_processor.start_new_session()
             
             self.is_recording = True
-            self.recording_start_time = time.time()
+            # Always set to RECORDING when starting a new recording
             self.hardware_controller.set_status(LEDStatus.RECORDING)
             self.logger.info(f"Started recording: {self.current_video_path}")
         except Exception as e:
             self.logger.error(f"Failed to start recording: {e}")
             self.hardware_controller.set_status(LEDStatus.ERROR)
-            time.sleep(5) # show error status for 5 seconds
+            time.sleep(5)
             raise
         
     
@@ -132,11 +130,11 @@ class MotionBarcodeSystem:
                 self.current_video_path and 
                 os.path.exists(self.current_video_path)):
                 self.video_processor.queue_video(self.current_video_path)
-                # Don't set LED status here, let VideoProcessor handle it
+                # LED status will be set by video_processor
             
             self.barcode_processor.end_session()
             self.is_recording = False
-            # Only set running status if video processor is not active
+            # Let video processor handle LED status if it's processing
             if not (self.video_processor and not self.video_processor.processing_queue.empty()):
                 self.hardware_controller.set_status(LEDStatus.RUNNING)
             self.logger.info("Stopped recording")
