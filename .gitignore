@@ -1,2 +1,6 @@
 structure.txt
 modules/json-sender-test.py
+pcvenv/
+modules/recordings/
+modules/models/
+modules/logs/

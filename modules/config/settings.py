@@ -23,7 +23,7 @@ class ProcessingConfig:
     # Video processing settings
     YOLO_MODEL_PATH = os.getenv(
         "YOLO_MODEL_PATH",
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/yolo11n_ncnn_model")
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/yolo11n.pt")
     )
     ENABLE_VIDEO_PROCESSING = True
     VIDEO_PROCESSING_CONFIDENCE = 0.3
@@ -31,6 +31,10 @@ class ProcessingConfig:
     MAX_DETECTIONS = 3
     VIDEO_PROCESSING_STRIDE = 4  # Process every Nth frame
     YOLO_TASK = "detect"  # Explicitly set YOLO task
+
+    # Zone detection settings
+    ZONE_BOUNDARY_PERCENT = 60  # Boundary line at 60% from top of frame
+    ZONE_BUFFER_PERCENT = 10    # Transition zone is 10% of frame height
 
 @dataclass
 class NetworkConfig:
