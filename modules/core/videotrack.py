@@ -19,124 +19,128 @@ class FridgeDirectionDetector:
         """Initialize the direction detector."""
         self.logger = logging.getLogger(__name__)
         self.line_points = line_points
-        self.last_crossing = {}
-        self.crossing_cooldown = 2.0
         self.detected_events = []
+        self.track_histories = {}  # Stores complete trajectories
+        self.processed_tracks = set()  # Tracks we've already classified
         
-        # Hysteresis thresholds relative to the main line
-        self.UPPER_THRESHOLD = -45  # Upper trigger line
-        self.LOWER_THRESHOLD = 45   # Lower trigger line
-        
-        # Track history for each object
-        self.track_histories = {}
-        self.last_positions = {}
+        # Define zones relative to the boundary line
+        self.main_line_y = line_points[0][1]
+        self.ZONE_MARGIN = 50  # pixels to consider as "decisively" in a zone
         
     def detect_direction(self, track_ids, boxes, class_ids, names, track_history):
-        """Detect direction of movement using both current position and track history."""
-        current_time = time.time()
+        """Detect direction by analyzing complete object trajectories."""
         current_directions = {}
-        main_line_y = self.line_points[0][1]
+        current_time = time.time()
         
+        # Update track histories
         for track_id, box, class_id in zip(track_ids, boxes, class_ids):
-            _, y = float(box[0]), float(box[1])
-            relative_pos = y - main_line_y
+            x, y = float(box[0]), float(box[1])
             object_name = names[int(class_id)]
             
-            # First determine if we detect any movement
-            detected_direction = None
+            if track_id not in self.track_histories:
+                self.track_histories[track_id] = {
+                    'positions': [],
+                    'object_name': object_name,
+                    'processed': False,
+                    'last_update': current_time
+                }
             
-            # Check track history
-            track = track_history.get(track_id, [])
-            if track:
-                crossed_in = self._check_track_crossing(track, main_line_y, "IN")
-                crossed_out = self._check_track_crossing(track, main_line_y, "OUT")
-                if crossed_in:
-                    detected_direction = "IN"
-                elif crossed_out:
-                    detected_direction = "OUT"
+            track_data = self.track_histories[track_id]
+            track_data['positions'].append((x, y))
+            track_data['last_update'] = current_time
             
-            # Check immediate position changes if no direction detected yet
-            if not detected_direction and track_id in self.last_positions:
-                last_pos = self.last_positions[track_id]
-                if last_pos <= self.LOWER_THRESHOLD and relative_pos > self.LOWER_THRESHOLD:
-                    detected_direction = "IN"
-                elif last_pos >= self.UPPER_THRESHOLD and relative_pos < self.UPPER_THRESHOLD:
-                    detected_direction = "OUT"
-            
-            # Now apply cooldown check AFTER determining direction
-            if detected_direction:
-                # Check if we're in cooldown period
-                if track_id in self.last_crossing:
-                    time_since_last = current_time - self.last_crossing[track_id]
-                    if time_since_last < self.crossing_cooldown:
-                        self.logger.debug(f"Skipping {object_name} {track_id}: in cooldown ({time_since_last:.1f}s < {self.crossing_cooldown}s)")
-                        continue
-                
-                # If we pass cooldown check, record the movement
-                self._record_movement(track_id, detected_direction, object_name, current_time)
-                current_directions[track_id] = (detected_direction, object_name)
-            
-            # Always update last known position
-            self.last_positions[track_id] = relative_pos
+            # Only process tracks we haven't classified yet
+            if track_id not in self.processed_tracks:
+                direction = self._analyze_trajectory(track_id)
+                if direction:
+                    self._record_movement(track_id, direction, object_name)
+                    current_directions[track_id] = (direction, object_name)
+                    self.processed_tracks.add(track_id)
         
         return current_directions
     
-    def _check_track_crossing(self, track, line_y, direction):
-        """Check if a track history shows line crossing in the specified direction."""
-        if len(track) < 2:
-            return False
+    def _analyze_trajectory(self, track_id):
+        """
+        Analyze a complete trajectory to determine movement direction.
+        Returns None if direction cannot be determined yet.
+        """
+        track_data = self.track_histories[track_id]
+        positions = track_data['positions']
+        
+        if len(positions) < 3:  # Reduced minimum points needed (was 5)
+            return None
             
-        # Convert track to numpy array for easier processing
-        track_arr = np.array(track)
+        # Instead of just using first/last points, analyze the whole path
+        y_positions = [y for _, y in positions]
+        max_y = max(y_positions)
+        min_y = min(y_positions)
         
-        # Get points around the line
-        if direction == "IN":
-            # Look for movement from above to below the line
-            above_line = track_arr[:, 1] < line_y
-            below_line = track_arr[:, 1] > line_y
-        else:
-            # Look for movement from below to above the line
-            above_line = track_arr[:, 1] > line_y
-            below_line = track_arr[:, 1] < line_y
+        # Check if the path crosses the line with sufficient margin
+        crosses_up = min_y < (self.main_line_y - 20) and max_y > (self.main_line_y + 20)
         
-        # Check if we have points on both sides and they're in the right order
-        has_above = np.any(above_line)
-        has_below = np.any(below_line)
+        if crosses_up:
+            # Determine direction by comparing early vs late positions
+            early_y = sum(y_positions[:3]) / 3  # Average of first 3 points
+            late_y = sum(y_positions[-3:]) / 3  # Average of last 3 points
+            
+            if early_y < late_y:
+                self.logger.debug(f"Track {track_id} shows clear downward movement "
+                                f"(early_y={early_y:.1f}, late_y={late_y:.1f})")
+                return "IN"
+            elif early_y > late_y:
+                self.logger.debug(f"Track {track_id} shows clear upward movement "
+                                f"(early_y={early_y:.1f}, late_y={late_y:.1f})")
+                return "OUT"
         
-        if has_above and has_below:
-            # Find where the crossing happened
-            transition_indices = np.where(np.diff(above_line))[0]
-            if len(transition_indices) > 0:
-                # Check if the transition is in the right direction
-                if direction == "IN":
-                    return np.any(np.diff(track_arr[transition_indices, 1]) > 0)
-                else:
-                    return np.any(np.diff(track_arr[transition_indices, 1]) < 0)
-        
-        return False
+        # If track is long but no direction determined, log for debugging
+        if len(positions) > 20:
+            self.logger.debug(
+                f"Track {track_id} has {len(positions)} points but no clear direction. "
+                f"Y-range: {min_y:.1f} to {max_y:.1f}, line at {self.main_line_y}"
+            )
+            
+        return None
     
-    def _record_movement(self, track_id, direction, object_name, current_time):
+    def _record_movement(self, track_id, direction, object_name):
         """Record a detected movement event."""
-        self.last_crossing[track_id] = current_time
+        track_data = self.track_histories[track_id]
+        positions = track_data['positions']
         
         event = {
-            "timestamp": current_time,
+            "timestamp": time.time(),
             "track_id": track_id,
             "object_type": object_name,
             "direction": direction,
+            "confidence": "high",
+            "total_track_points": len(positions),
+            "y_range": {
+                "min": min(y for _, y in positions),
+                "max": max(y for _, y in positions),
+                "line": self.main_line_y
+            }
         }
         self.detected_events.append(event)
-        self.logger.info(f"{object_name} {track_id} moved {direction}")
+        self.logger.info(
+            f"{object_name} {track_id} moved {direction} "
+            f"(based on {event['total_track_points']} points, "
+            f"y_range: {event['y_range']['min']:.1f} to {event['y_range']['max']:.1f})"
+        )
     
     def cleanup_inactive(self, current_time, active_track_ids):
         """Clean up state for inactive tracks."""
-        all_track_ids = set(self.last_positions.keys())
-        inactive_track_ids = all_track_ids - set(active_track_ids)
+        inactive_tracks = set(self.track_histories.keys()) - set(active_track_ids)
         
-        for track_id in inactive_track_ids:
-            del self.last_positions[track_id]
-            if track_id in self.last_crossing:
-                del self.last_crossing[track_id]
+        for track_id in inactive_tracks:
+            track_data = self.track_histories[track_id]
+            
+            # Try one last time to determine direction if not processed
+            if track_id not in self.processed_tracks:
+                direction = self._analyze_trajectory(track_id)
+                if direction:
+                    self._record_movement(track_id, direction, track_data['object_name'])
+            
+            # Clean up
+            del self.track_histories[track_id]
                 
     def get_events(self):
         """Return all detected events."""
@@ -192,18 +196,20 @@ def process_tracking_results(result, detector, track_history, frame, frame_width
         for box, track_id in zip(boxes, track_ids):
             x, y, w, h = box
             
-            # Update track history
+            # Update track history for visualization
             if track_id not in track_history:
                 track_history[track_id] = []
             track = track_history[track_id]
             track.append((float(x), float(y)))
-            if len(track) > 50:  # Keep last 30 points
+            if len(track) > 60:  # Keep more points for visualization
                 track.pop(0)
             
-            # Draw tracking lines
-            points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
-            cv2.polylines(annotated_frame, [points], isClosed=False, 
-                         color=(230, 230, 230), thickness=10)
+            # Draw trajectory
+            if len(track) > 1:
+                points = np.hstack(track).astype(np.int32).reshape((-1, 1, 2))
+                # Draw thicker white line for better visibility
+                cv2.polylines(annotated_frame, [points], isClosed=False, 
+                            color=(230, 230, 230), thickness=10)
             
             # Add direction label if available
             if track_id in current_directions:
@@ -213,7 +219,7 @@ def process_tracking_results(result, detector, track_history, frame, frame_width
                           (int(x - w/2), int(y - h/2 - 10)),
                           cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
     
-    # Draw detection lines with hysteresis thresholds
+    # Draw detection lines
     draw_detection_lines(annotated_frame, line_points, frame_width)
     
     return annotated_frame
