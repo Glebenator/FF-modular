@@ -222,6 +222,9 @@ def process_h264_video(video_path, model_path):
     logger.info(f"Starting video processing: {video_path}")
     
     try:
+        # Extract session timestamp from video path
+        session_start = os.path.basename(video_path).split('_', 1)[1].rsplit('.', 1)[0]
+        
         # Load the YOLO model
         model = YOLO(model_path, task=ProcessingConfig.YOLO_TASK)
         
@@ -269,7 +272,7 @@ def process_h264_video(video_path, model_path):
                 persist=True,
                 verbose=False,
                 stream=True,
-                vid_stride=1,  # Already handled by frame_count
+                vid_stride=1,
                 max_det=ProcessingConfig.MAX_DETECTIONS,
                 tracker="botsort.yaml"
             )
@@ -284,9 +287,9 @@ def process_h264_video(video_path, model_path):
                 # Write the frame
                 out.write(annotated_frame)
         
-        # Save detection results
+        # Save detection results with session timestamp
         os.makedirs(PathConfig.JSON_TRACKING_DIR, exist_ok=True)
-        save_detection_results(video_path, detector.get_events())
+        save_detection_results(video_path, detector.get_events(), session_start)
         
         # Cleanup
         cap.release()
@@ -301,7 +304,7 @@ def process_h264_video(video_path, model_path):
         return False
 
 
-def save_detection_results(video_path, events, session_start):  # Add session_start parameter
+def save_detection_results(video_path, events, session_start):
     """Save detection results to a JSON file."""
     try:
         base_name = os.path.splitext(os.path.basename(video_path))[0]
@@ -310,7 +313,7 @@ def save_detection_results(video_path, events, session_start):  # Add session_st
             f"{base_name}_tracking_results.json"
         )
         
-        # Create the standardized format using the passed session_start
+        # Create results in standardized format
         results = {
             "session_start": session_start,
             "items": events

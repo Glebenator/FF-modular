@@ -96,8 +96,10 @@ class VideoProcessor:
                 
                 if not self.is_processing:
                     self.is_processing = True
-                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
-                    
+                    # Only set LED status if we're the only active process
+                    if self.hardware_controller.get_status() != LEDStatus.RECORDING:
+                        self.hardware_controller.set_status(LEDStatus.PROCESSING)
+                
                 # Add both video path and session timestamp to queue
                 self.processing_queue.put((video_path, session_start))
                 self.logger.info(f"Queued video for processing: {video_path}")
@@ -112,15 +114,16 @@ class VideoProcessor:
             try:
                 if not self.processing_queue.empty():
                     video_path = self.processing_queue.get()
-                    # Ensure LED is blue while processing
-                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
+                    # Ensure LED is blue while processing only if not recording
+                    if self.hardware_controller.get_status() != LEDStatus.RECORDING:
+                        self.hardware_controller.set_status(LEDStatus.PROCESSING)
                     self._process_video(video_path)
                     self.processing_queue.task_done()
                     
                     if self.processing_queue.empty():
                         self.is_processing = False
-                        # Only set to RUNNING if we're not recording
-                        if not hasattr(self, 'is_recording') or not self.is_recording:
+                        # Only change LED status if we're not recording
+                        if self.hardware_controller.get_status() != LEDStatus.RECORDING:
                             self.hardware_controller.set_status(LEDStatus.RUNNING)
                 else:
                     time.sleep(1)
@@ -130,11 +133,11 @@ class VideoProcessor:
                 time.sleep(5)
                 # Return to appropriate status after error
                 if not self.processing_queue.empty():
-                    self.hardware_controller.set_status(LEDStatus.PROCESSING)
-                elif hasattr(self, 'is_recording') and self.is_recording:
-                    self.hardware_controller.set_status(LEDStatus.RECORDING)
+                    if self.hardware_controller.get_status() != LEDStatus.RECORDING:
+                        self.hardware_controller.set_status(LEDStatus.PROCESSING)
                 else:
-                    self.hardware_controller.set_status(LEDStatus.RUNNING)
+                    if self.hardware_controller.get_status() != LEDStatus.RECORDING:
+                        self.hardware_controller.set_status(LEDStatus.RUNNING)
                 
     def _process_video(self, video_data):
         """Process a single video file with pause support."""
@@ -146,7 +149,6 @@ class VideoProcessor:
             while self.processing_pause.is_set():
                 time.sleep(0.1)
             
-            # Pass session_start to the processing function
             process_h264_video(video_path, self.model_path)
             
             # Get the results file path
@@ -165,7 +167,7 @@ class VideoProcessor:
                     # Send results directly using JSONSender
                     self.json_sender.send_recording_data(
                         f"video_processing_{base_name}",
-                        results_data  # Contains exactly {session_start, items[{name, direction}]}
+                        results_data  # Contains session_start and items
                     )
                     
                 except Exception as e:

@@ -130,13 +130,16 @@ class MotionBarcodeSystem:
                 self.current_video_path and 
                 os.path.exists(self.current_video_path)):
                 self.video_processor.queue_video(self.current_video_path)
-                # LED status will be set by video_processor
             
             self.barcode_processor.end_session()
             self.is_recording = False
-            # Let video processor handle LED status if it's processing
-            if not (self.video_processor and not self.video_processor.processing_queue.empty()):
+            
+            # Explicitly check processing state and set LED accordingly
+            if self.video_processor and not self.video_processor.processing_queue.empty():
+                self.hardware_controller.set_status(LEDStatus.PROCESSING)
+            else:
                 self.hardware_controller.set_status(LEDStatus.RUNNING)
+                
             self.logger.info("Stopped recording")
             
     def scan_barcode(self, frame):
