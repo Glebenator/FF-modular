@@ -280,8 +280,7 @@ def process_h264_video(video_path, model_path):
                 stream=True,
                 vid_stride=1,  # Already handled by frame_count
                 max_det=ProcessingConfig.MAX_DETECTIONS,
-                tracker="botsort.yaml",
-                classes=[45, 46, 47, 48, 49, 50, 51]  # Food item classes
+                tracker="botsort.yaml"
             )
             
             # Process tracking results

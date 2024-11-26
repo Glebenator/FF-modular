@@ -23,7 +23,7 @@ class ProcessingConfig:
     # Video processing settings
     YOLO_MODEL_PATH = os.getenv(
         "YOLO_MODEL_PATH",
-        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/yolo11s.pt")
+        os.path.join(os.path.dirname(os.path.dirname(__file__)), "models/best_large.pt")
     )
     ENABLE_VIDEO_PROCESSING = True
     VIDEO_PROCESSING_CONFIDENCE = 0.45
