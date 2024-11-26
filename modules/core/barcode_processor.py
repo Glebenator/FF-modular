@@ -53,7 +53,7 @@ class BarcodeProcessor:
                 
                 barcode_entry = {
                     "barcode": barcode_data,
-                    "detection_time": current_time,
+                    "direction": "in"
                 }
                 self.current_session_barcodes.append(barcode_entry)
                 

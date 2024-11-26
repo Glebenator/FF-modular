@@ -118,7 +118,7 @@ class MotionBarcodeSystem:
             if self.barcode_processor.current_session_barcodes:
                 session_data = {
                     "session_start": self.current_session_timestamp,
-                    "barcodes": self.barcode_processor.current_session_barcodes
+                    "items": self.barcode_processor.current_session_barcodes
                 }
                 self.json_sender.send_recording_data(
                     self.current_session_timestamp,

@@ -91,11 +91,15 @@ class VideoProcessor:
         """Add a video to the processing queue."""
         try:
             if os.path.exists(video_path):
-                # Set processing status as soon as we queue a video
+                # Extract session timestamp from filename
+                session_start = os.path.basename(video_path).split('_', 1)[1].rsplit('.', 1)[0]
+                
                 if not self.is_processing:
                     self.is_processing = True
                     self.hardware_controller.set_status(LEDStatus.PROCESSING)
-                self.processing_queue.put(video_path)
+                    
+                # Add both video path and session timestamp to queue
+                self.processing_queue.put((video_path, session_start))
                 self.logger.info(f"Queued video for processing: {video_path}")
             else:
                 self.logger.error(f"Video file not found: {video_path}")
@@ -132,16 +136,17 @@ class VideoProcessor:
                 else:
                     self.hardware_controller.set_status(LEDStatus.RUNNING)
                 
-    def _process_video(self, video_path):
+    def _process_video(self, video_data):
         """Process a single video file with pause support."""
         try:
+            video_path, session_start = video_data  # Unpack the tuple
             self.logger.info(f"Processing video: {video_path}")
             
             # Only process when not paused
             while self.processing_pause.is_set():
                 time.sleep(0.1)
             
-            # Use the existing video processing function
+            # Pass session_start to the processing function
             process_h264_video(video_path, self.model_path)
             
             # Get the results file path
@@ -157,21 +162,10 @@ class VideoProcessor:
                     with open(results_path, 'r') as f:
                         results_data = json.load(f)
                     
-                    # Add additional metadata
-                    session_data = {
-                        "video_file": video_path,
-                        "processing_time": time.time(),
-                        "analyzed_video_path": os.path.join(
-                            PathConfig.VIDEO_ANALYZED_DIR,
-                            f"{base_name}_analyzed.mp4"
-                        ),
-                        "processing_results": results_data
-                    }
-                    
-                    # Send results using JSONSender
+                    # Send results directly using JSONSender
                     self.json_sender.send_recording_data(
                         f"video_processing_{base_name}",
-                        session_data
+                        results_data  # Contains exactly {session_start, items[{name, direction}]}
                     )
                     
                 except Exception as e:

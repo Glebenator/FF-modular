@@ -104,27 +104,18 @@ class FridgeDirectionDetector:
     def _record_movement(self, track_id, direction, object_name):
         """Record a detected movement event."""
         track_data = self.track_histories[track_id]
-        positions = track_data['positions']
         
+        # Convert direction to lowercase and clean up object name
+        direction = direction.lower()  # "IN" -> "in"
+        
+        # Record simplified event format
         event = {
-            "timestamp": time.time(),
-            "track_id": track_id,
-            "object_type": object_name,
-            "direction": direction,
-            "confidence": "high",
-            "total_track_points": len(positions),
-            "y_range": {
-                "min": min(y for _, y in positions),
-                "max": max(y for _, y in positions),
-                "line": self.main_line_y
-            }
+            "name": object_name,
+            "direction": direction
         }
+        
         self.detected_events.append(event)
-        self.logger.info(
-            f"{object_name} {track_id} moved {direction} "
-            f"(based on {event['total_track_points']} points, "
-            f"y_range: {event['y_range']['min']:.1f} to {event['y_range']['max']:.1f})"
-        )
+        self.logger.info(f"{object_name} moved {direction}")
     
     def cleanup_inactive(self, current_time, active_track_ids):
         """Clean up state for inactive tracks."""
@@ -310,7 +301,7 @@ def process_h264_video(video_path, model_path):
         return False
 
 
-def save_detection_results(video_path, events):
+def save_detection_results(video_path, events, session_start):  # Add session_start parameter
     """Save detection results to a JSON file."""
     try:
         base_name = os.path.splitext(os.path.basename(video_path))[0]
@@ -319,16 +310,10 @@ def save_detection_results(video_path, events):
             f"{base_name}_tracking_results.json"
         )
         
+        # Create the standardized format using the passed session_start
         results = {
-            "video_file": video_path,
-            "processing_time": datetime.now().isoformat(),
-            "events": events,
-            "processing_parameters": {
-                "confidence_threshold": ProcessingConfig.VIDEO_PROCESSING_CONFIDENCE,
-                "iou_threshold": ProcessingConfig.VIDEO_PROCESSING_IOU,
-                "max_detections": ProcessingConfig.MAX_DETECTIONS,
-                "processing_stride": ProcessingConfig.VIDEO_PROCESSING_STRIDE
-            }
+            "session_start": session_start,
+            "items": events
         }
         
         with open(results_path, 'w') as f:

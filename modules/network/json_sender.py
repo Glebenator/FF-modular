@@ -147,25 +147,16 @@ class JSONSender:
     def _send_json(self, item: QueueItem) -> bool:
         """Send JSON data to server with exponential backoff retry"""
         try:
-            data_to_send = {
-                'data': item.data,
-                'sender_metadata': {
-                    'sent_timestamp': datetime.now().isoformat(),
-                    'session_id': item.session_id,
-                    'retry_count': item.retries
-                }
-            }
-            
             response = requests.post(
                 self.server_url,
-                json=data_to_send,
+                json=item.data,  # Send data directly without additional wrapping
                 headers={
                     'Content-Type': 'application/json',
                     'User-Agent': 'JSONSender/1.0'
                 },
                 timeout=self.connection_timeout
             )
-            
+            print(response)
             response.raise_for_status()
             
             with self.metrics_lock:
@@ -178,7 +169,7 @@ class JSONSender:
             
             self.logger.info(f"Successfully sent session {item.session_id}")
             return True
-            
+        
         except Exception as e:
             self.logger.error(f"Error sending data: {e}")
             with self.metrics_lock:
@@ -190,7 +181,6 @@ class JSONSender:
                 self._update_json_status(item.json_path, "failed", str(e))
             
             return False
-            
 
     def _process_queues(self) -> None:
         """Process both send and retry queues."""
